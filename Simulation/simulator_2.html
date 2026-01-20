@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Collision Mechanics Simulator</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body style="padding: 0; background: transparent;">
+    <div class="sim-container">
+        <div class="sim-grid">
+            <!-- Canvas Panel -->
+            <div class="sim-panel">
+                <h3 class="sim-panel-title">Collision Visualization</h3>
+                <div class="canvas-container">
+                    <canvas id="collisionCanvas" width="600" height="300"></canvas>
+                </div>
+                <div class="info-text">
+                    <p><strong>Blue ball:</strong> Mass <span id="infoMass1">1</span>kg, Velocity <span id="infoVel1">5</span>m/s</p>
+                    <p><strong>Pink ball:</strong> Mass <span id="infoMass2">1</span>kg, Velocity <span id="infoVel2">-3</span>m/s</p>
+                    <p><strong>Type:</strong> <span id="collisionType">Elastic (e=1.0)</span></p>
+                </div>
+            </div>
+
+            <!-- Controls Panel -->
+            <div>
+                <div class="sim-panel">
+                    <h3 class="sim-panel-title">Parameters</h3>
+                    
+                    <div class="control-group">
+                        <label class="control-label">
+                            Ball 1 Mass: <span id="mass1Value">1</span> kg
+                        </label>
+                        <input type="range" id="mass1Slider" min="0.5" max="5" value="1" step="0.5">
+                    </div>
+
+                    <div class="control-group">
+                        <label class="control-label">
+                            Ball 2 Mass: <span id="mass2Value">1</span> kg
+                        </label>
+                        <input type="range" id="mass2Slider" min="0.5" max="5" value="1" step="0.5">
+                    </div>
+
+                    <div class="control-group">
+                        <label class="control-label">
+                            Ball 1 Velocity: <span id="velocity1Value">5</span> m/s
+                        </label>
+                        <input type="range" id="velocity1Slider" min="-10" max="10" value="5" step="0.5">
+                    </div>
+
+                    <div class="control-group">
+                        <label class="control-label">
+                            Ball 2 Velocity: <span id="velocity2Value">-3</span> m/s
+                        </label>
+                        <input type="range" id="velocity2Slider" min="-10" max="10" value="-3" step="0.5">
+                    </div>
+
+                    <div class="control-group">
+                        <label class="control-label">
+                            Coefficient of Restitution: <span id="coefficientValue">1.0</span>
+                        </label>
+                        <input type="range" id="coefficientSlider" min="0" max="1" value="1" step="0.1">
+                        <div class="range-labels">
+                            <span>Inelastic (0)</span>
+                            <span>Elastic (1)</span>
+                        </div>
+                    </div>
+
+                    <div class="button-group">
+                        <button id="startBtn" class="btn btn-purple">Start</button>
+                        <button id="pauseBtn" class="btn btn-warning" disabled>Pause</button>
+                        <button id="resetBtn" class="btn btn-secondary">Reset</button>
+                    </div>
+                </div>
+
+                <div class="sim-panel" style="margin-top: 1.5rem;">
+                    <h3 class="sim-panel-title">Post-Collision Results</h3>
+                    <div class="stats-grid">
+                        <div class="stat-row">
+                            <span class="stat-label">Ball 1 Final Velocity:</span>
+                            <span class="stat-value" id="v1fValue">0.00 m/s</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">Ball 2 Final Velocity:</span>
+                            <span class="stat-value" id="v2fValue">0.00 m/s</span>
+                        </div>
+                        <div class="stat-divider"></div>
+                        <div class="stat-row">
+                            <span class="stat-label">KE Before:</span>
+                            <span class="stat-value" id="keBeforeValue">0.00 J</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">KE After:</span>
+                            <span class="stat-value" id="keAfterValue">0.00 J</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">Energy Lost:</span>
+                            <span class="stat-value" id="energyLostValue">0.00 J</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Activity Log -->
+        <div class="sim-panel">
+            <h3 class="sim-panel-title">Activity Log (Last 10 interactions)</h3>
+            <div id="activityLog" class="log-container"></div>
+        </div>
+    </div>
+
+    <script src="shared_engine.js"></script>
+    <script>
+        // Initialize physics engine and components
+        const physics = new PhysicsEngine();
+        const animator = new AnimationController();
+        
+        // Get DOM elements
+        const canvas = document.getElementById('collisionCanvas');
+        const renderer = new CanvasRenderer(canvas);
+        
+        const mass1Slider = document.getElementById('mass1Slider');
+        const mass2Slider = document.getElementById('mass2Slider');
+        const velocity1Slider = document.getElementById('velocity1Slider');
+        const velocity2Slider = document.getElementById('velocity2Slider');
+        const coefficientSlider = document.getElementById('coefficientSlider');
+        
+        const mass1Value = document.getElementById('mass1Value');
+        const mass2Value = document.getElementById('mass2Value');
+        const velocity1Value = document.getElementById('velocity1Value');
+        const velocity2Value = document.getElementById('velocity2Value');
+        const coefficientValue = document.getElementById('coefficientValue');
+        
+        const startBtn = document.getElementById('startBtn');
+        const pauseBtn = document.getElementById('pauseBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        
+        const activityLog = document.getElementById('activityLog');
+        
+        // Info displays
+        const infoMass1 = document.getElementById('infoMass1');
+        const infoMass2 = document.getElementById('infoMass2');
+        const infoVel1 = document.getElementById('infoVel1');
+        const infoVel2 = document.getElementById('infoVel2');
+        const collisionType = document.getElementById('collisionType');
+        
+        // Results displays
+        const v1fDisplay = document.getElementById('v1fValue');
+        const v2fDisplay = document.getElementById('v2fValue');
+        const keBeforeDisplay = document.getElementById('keBeforeValue');
+        const keAfterDisplay = document.getElementById('keAfterValue');
+        const energyLostDisplay = document.getElementById('energyLostValue');
+        
+        // Simulation state
+        let currentParams = {
+            mass1: 1,
+            mass2: 1,
+            velocity1: 5,
+            velocity2: -3,
+            coefficient: 1
+        };
+        
+        let ball1Pos = 100;
+        let ball2Pos = 500;
+        let currentV1 = 5;
+        let currentV2 = -3;
+        let hasCollided = false;
+        let collisionResults = null;
+        
+        // Update log display
+        function updateLogDisplay() {
+            const logs = physics.getRecentLogs(10);
+            activityLog.innerHTML = logs.map(log => 
+                `<div class="log-entry">${physics.formatTime(log.timestamp)} - ${log.action}: ${log.details}</div>`
+            ).join('');
+            activityLog.scrollTop = activityLog.scrollHeight;
+        }
+        
+        // Calculate and display collision results
+        function calculateAndDisplay() {
+            collisionResults = physics.calculateCollision(
+                currentParams.mass1,
+                currentParams.mass2,
+                currentParams.velocity1,
+                currentParams.velocity2,
+                currentParams.coefficient
+            );
+            
+            v1fDisplay.textContent = physics.formatNumber(collisionResults.v1f) + ' m/s';
+            v2fDisplay.textContent = physics.formatNumber(collisionResults.v2f) + ' m/s';
+            keBeforeDisplay.textContent = physics.formatNumber(collisionResults.keBefore) + ' J';
+            keAfterDisplay.textContent = physics.formatNumber(collisionResults.keAfter) + ' J';
+            energyLostDisplay.textContent = physics.formatNumber(collisionResults.energyLost) + ' J';
+            
+            // Update info
+            infoMass1.textContent = currentParams.mass1;
+            infoMass2.textContent = currentParams.mass2;
+            infoVel1.textContent = currentParams.velocity1;
+            infoVel2.textContent = currentParams.velocity2;
+            
+            const coef = currentParams.coefficient;
+            let type = '';
+            if (coef === 1) type = 'Elastic';
+            else if (coef === 0) type = 'Perfectly Inelastic';
+            else type = 'Partially Elastic';
+            collisionType.textContent = `${type} (e=${coef.toFixed(1)})`;
+        }
+        
+        // Render canvas
+        function render() {
+            renderer.clear();
+            
+            const trackY = canvas.height / 2;
+            
+            // Draw track
+            renderer.drawLine(0, trackY, canvas.width, trackY, '#475569', 2);
+            
+            // Calculate ball sizes based on mass
+            const radius1 = 20 + currentParams.mass1 * 10;
+            const radius2 = 20 + currentParams.mass2 * 10;
+            
+            // Ball colors
+            const ball1Color = hasCollided ? '#fbbf24' : '#60a5fa';
+            const ball2Color = hasCollided ? '#fbbf24' : '#f472b6';
+            
+            // Draw balls
+            renderer.drawCircle(ball1Pos, trackY, radius1, ball1Color, '#ffffff', 2);
+            renderer.drawCircle(ball2Pos, trackY, radius2, ball2Color, '#ffffff', 2);
+            
+            // Draw velocity arrows
+            if (!hasCollided && !animator.isRunning) {
+                // Initial velocities
+                if (currentParams.velocity1 !== 0) {
+                    renderer.drawArrow(
+                        ball1Pos, 
+                        trackY - radius1 - 15,
+                        ball1Pos + currentParams.velocity1 * 10, 
+                        trackY - radius1 - 15,
+                        '#60a5fa', 
+                        3
+                    );
+                }
+                if (currentParams.velocity2 !== 0) {
+                    renderer.drawArrow(
+                        ball2Pos, 
+                        trackY - radius2 - 15,
+                        ball2Pos + currentParams.velocity2 * 10, 
+                        trackY - radius2 - 15,
+                        '#f472b6', 
+                        3
+                    );
+                }
+            } else if (hasCollided) {
+                // Post-collision velocities
+                if (currentV1 !== 0) {
+                    renderer.drawArrow(
+                        ball1Pos, 
+                        trackY - radius1 - 15,
+                        ball1Pos + currentV1 * 10, 
+                        trackY - radius1 - 15,
+                        '#fbbf24', 
+                        3
+                    );
+                }
+                if (currentV2 !== 0) {
+                    renderer.drawArrow(
+                        ball2Pos, 
+                        trackY - radius2 - 15,
+                        ball2Pos + currentV2 * 10, 
+                        trackY - radius2 - 15,
+                        '#fbbf24', 
+                        3
+                    );
+                }
+            }
+        }
+        
+        // Parameter change handlers
+        mass1Slider.addEventListener('input', (e) => {
+            const oldValue = currentParams.mass1;
+            currentParams.mass1 = parseFloat(e.target.value);
+            mass1Value.textContent = currentParams.mass1;
+            
+            physics.log('mass1_changed', { old: oldValue, new: currentParams.mass1 });
+            updateLogDisplay();
+            calculateAndDisplay();
+            render();
+        });
+        
+        mass2Slider.addEventListener('input', (e) => {
+            const oldValue = currentParams.mass2;
+            currentParams.mass2 = parseFloat(e.target.value);
+            mass2Value.textContent = currentParams.mass2;
+            
+            physics.log('mass2_changed', { old: oldValue, new: currentParams.mass2 });
+            updateLogDisplay();
+            calculateAndDisplay();
+            render();
+        });
+        
+        velocity1Slider.addEventListener('input', (e) => {
+            const oldValue = currentParams.velocity1;
+            currentParams.velocity1 = parseFloat(e.target.value);
+            velocity1Value.textContent = currentParams.velocity1;
+            
+            physics.log('velocity1_changed', { old: oldValue, new: currentParams.velocity1 });
+            updateLogDisplay();
+            calculateAndDisplay();
+            render();
+        });
+        
+        velocity2Slider.addEventListener('input', (e) => {
+            const oldValue = currentParams.velocity2;
+            currentParams.velocity2 = parseFloat(e.target.value);
+            velocity2Value.textContent = currentParams.velocity2;
+            
+            physics.log('velocity2_changed', { old: oldValue, new: currentParams.velocity2 });
+            updateLogDisplay();
+            calculateAndDisplay();
+            render();
+        });
+        
+        coefficientSlider.addEventListener('input', (e) => {
+            const oldValue = currentParams.coefficient;
+            currentParams.coefficient = parseFloat(e.target.value);
+            coefficientValue.textContent = currentParams.coefficient.toFixed(1);
+            
+            physics.log('coefficient_changed', { old: oldValue, new: currentParams.coefficient });
+            updateLogDisplay();
+            calculateAndDisplay();
+            render();
+        });
+        
+        // Start simulation
+        startBtn.addEventListener('click', () => {
+            ball1Pos = 100;
+            ball2Pos = 500;
+            currentV1 = currentParams.velocity1;
+            currentV2 = currentParams.velocity2;
+            hasCollided = false;
+            
+            physics.log('collision_started', currentParams);
+            updateLogDisplay();
+            
+            // Disable controls
+            mass1Slider.disabled = true;
+            mass2Slider.disabled = true;
+            velocity1Slider.disabled = true;
+            velocity2Slider.disabled = true;
+            coefficientSlider.disabled = true;
+            startBtn.disabled = true;
+            pauseBtn.disabled = false;
+            
+            animator.start((elapsed) => {
+                // Update positions
+                ball1Pos += currentV1 * 2;
+                ball2Pos += currentV2 * 2;
+                
+                // Check for collision
+                const radius1 = 20 + currentParams.mass1 * 10;
+                const radius2 = 20 + currentParams.mass2 * 10;
+                
+                if (!hasCollided && physics.checkCollision(ball1Pos, ball2Pos, radius1, radius2)) {
+                    hasCollided = true;
+                    currentV1 = collisionResults.v1f;
+                    currentV2 = collisionResults.v2f;
+                    
+                    physics.log('collision_occurred', {
+                        v1f: currentV1,
+                        v2f: currentV2,
+                        energyLost: collisionResults.energyLost
+                    });
+                    updateLogDisplay();
+                }
+                
+                // Check if balls are out of bounds
+                if (ball1Pos < -50 || ball1Pos > canvas.width + 50 || 
+                    ball2Pos < -50 || ball2Pos > canvas.width + 50) {
+                    
+                    physics.log('simulation_completed', {
+                        collided: hasCollided
+                    });
+                    updateLogDisplay();
+                    
+                    // Re-enable controls
+                    mass1Slider.disabled = false;
+                    mass2Slider.disabled = false;
+                    velocity1Slider.disabled = false;
+                    velocity2Slider.disabled = false;
+                    coefficientSlider.disabled = false;
+                    startBtn.disabled = false;
+                    pauseBtn.disabled = true;
+                    
+                    return false; // Stop animation
+                }
+                
+                render();
+                return true; // Continue animation
+            });
+        });
+        
+        // Pause simulation
+        pauseBtn.addEventListener('click', () => {
+            animator.stop();
+            
+            physics.log('collision_paused', {});
+            updateLogDisplay();
+            
+            mass1Slider.disabled = false;
+            mass2Slider.disabled = false;
+            velocity1Slider.disabled = false;
+            velocity2Slider.disabled = false;
+            coefficientSlider.disabled = false;
+            startBtn.disabled = false;
+            pauseBtn.disabled = true;
+        });
+        
+        // Reset simulation
+        resetBtn.addEventListener('click', () => {
+            animator.reset();
+            ball1Pos = 100;
+            ball2Pos = 500;
+            currentV1 = currentParams.velocity1;
+            currentV2 = currentParams.velocity2;
+            hasCollided = false;
+            
+            physics.log('collision_reset', {});
+            updateLogDisplay();
+            
+            mass1Slider.disabled = false;
+            mass2Slider.disabled = false;
+            velocity1Slider.disabled = false;
+            velocity2Slider.disabled = false;
+            coefficientSlider.disabled = false;
+            startBtn.disabled = false;
+            pauseBtn.disabled = true;
+            
+            render();
+        });
+        
+        // Initialize
+        calculateAndDisplay();
+        render();
+    </script>
+</body>
+</html>

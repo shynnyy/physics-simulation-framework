@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Projectile Motion Simulator</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body style="padding: 0; background: transparent;">
+    <div class="sim-container">
+        <div class="sim-grid">
+            <!-- Canvas Panel -->
+            <div class="sim-panel">
+                <h3 class="sim-panel-title">Trajectory Visualization</h3>
+                <div class="canvas-container">
+                    <canvas id="projectileCanvas" width="600" height="400"></canvas>
+                </div>
+            </div>
+
+            <!-- Controls Panel -->
+            <div>
+                <div class="sim-panel">
+                    <h3 class="sim-panel-title">Parameters</h3>
+                    
+                    <div class="control-group">
+                        <label class="control-label">
+                            Launch Angle: <span id="angleValue">45</span>°
+                        </label>
+                        <input type="range" id="angleSlider" min="0" max="90" value="45" step="1">
+                    </div>
+
+                    <div class="control-group">
+                        <label class="control-label">
+                            Initial Velocity: <span id="velocityValue">20</span> m/s
+                        </label>
+                        <input type="range" id="velocitySlider" min="5" max="50" value="20" step="1">
+                    </div>
+
+                    <div class="control-group">
+                        <label class="control-label">
+                            Gravity: <span id="gravityValue">9.8</span> m/s²
+                        </label>
+                        <input type="range" id="gravitySlider" min="1" max="20" value="9.8" step="0.1">
+                    </div>
+
+                    <div class="button-group">
+                        <button id="launchBtn" class="btn btn-primary">Launch</button>
+                        <button id="pauseBtn" class="btn btn-warning" disabled>Pause</button>
+                        <button id="resetBtn" class="btn btn-secondary">Reset</button>
+                    </div>
+                </div>
+
+                <div class="sim-panel" style="margin-top: 1.5rem;">
+                    <h3 class="sim-panel-title">Calculated Results</h3>
+                    <div class="stats-grid">
+                        <div class="stat-row">
+                            <span class="stat-label">Range:</span>
+                            <span class="stat-value" id="rangeValue">0.00 m</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">Max Height:</span>
+                            <span class="stat-value" id="maxHeightValue">0.00 m</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">Time of Flight:</span>
+                            <span class="stat-value" id="timeValue">0.00 s</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Activity Log -->
+        <div class="sim-panel">
+            <h3 class="sim-panel-title">Activity Log (Last 10 interactions)</h3>
+            <div id="activityLog" class="log-container"></div>
+        </div>
+    </div>
+
+    <script src="shared_engine.js"></script>
+    <script>
+        // Initialize physics engine and components
+        const physics = new PhysicsEngine();
+        const animator = new AnimationController();
+        
+        // Get DOM elements
+        const canvas = document.getElementById('projectileCanvas');
+        const renderer = new CanvasRenderer(canvas);
+        
+        const angleSlider = document.getElementById('angleSlider');
+        const velocitySlider = document.getElementById('velocitySlider');
+        const gravitySlider = document.getElementById('gravitySlider');
+        
+        const angleValue = document.getElementById('angleValue');
+        const velocityValue = document.getElementById('velocityValue');
+        const gravityValue = document.getElementById('gravityValue');
+        
+        const launchBtn = document.getElementById('launchBtn');
+        const pauseBtn = document.getElementById('pauseBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        
+        const rangeDisplay = document.getElementById('rangeValue');
+        const maxHeightDisplay = document.getElementById('maxHeightValue');
+        const timeDisplay = document.getElementById('timeValue');
+        const activityLog = document.getElementById('activityLog');
+        
+        // Simulation state
+        let currentParams = {
+            angle: 45,
+            velocity: 20,
+            gravity: 9.8
+        };
+        
+        let trail = [];
+        let projectilePos = { x: 0, y: 0 };
+        let calculatedResults = null;
+        
+        // Update log display
+        function updateLogDisplay() {
+            const logs = physics.getRecentLogs(10);
+            activityLog.innerHTML = logs.map(log => 
+                `<div class="log-entry">${physics.formatTime(log.timestamp)} - ${log.action}: ${log.details}</div>`
+            ).join('');
+            activityLog.scrollTop = activityLog.scrollHeight;
+        }
+        
+        // Calculate and display results
+        function calculateAndDisplay() {
+            calculatedResults = physics.calculateProjectile(
+                currentParams.angle,
+                currentParams.velocity,
+                currentParams.gravity
+            );
+            
+            rangeDisplay.textContent = physics.formatNumber(calculatedResults.range) + ' m';
+            maxHeightDisplay.textContent = physics.formatNumber(calculatedResults.maxHeight) + ' m';
+            timeDisplay.textContent = physics.formatNumber(calculatedResults.timeOfFlight) + ' s';
+        }
+        
+        // Render canvas
+        function render() {
+            renderer.clear();
+            
+            const groundY = canvas.height - 50;
+            const startX = 50;
+            const scale = 10;
+            
+            // Draw ground
+            renderer.drawLine(0, groundY, canvas.width, groundY, '#475569', 2);
+            
+            // Draw trail
+            if (trail.length > 1) {
+                const trailPoints = trail.map(p => ({
+                    x: startX + p.x * scale,
+                    y: groundY - p.y * scale
+                }));
+                renderer.drawPath(trailPoints, '#60a5fa', 2);
+            }
+            
+            // Draw projectile
+            if (trail.length > 0) {
+                const x = startX + projectilePos.x * scale;
+                const y = groundY - projectilePos.y * scale;
+                renderer.drawCircle(x, y, 8, '#f472b6', '#ffffff', 2);
+            }
+            
+            // Draw launch angle indicator when not running
+            if (!animator.isRunning && calculatedResults) {
+                const angleRad = (currentParams.angle * Math.PI) / 180;
+                const arrowLength = 60;
+                const endX = startX + Math.cos(angleRad) * arrowLength;
+                const endY = groundY - Math.sin(angleRad) * arrowLength;
+                renderer.drawArrow(startX, groundY, endX, endY, '#94a3b8', 2);
+                renderer.drawText(currentParams.angle + '°', endX + 10, endY, '#94a3b8', '12px Arial');
+            }
+        }
+        
+        // Parameter change handlers
+        angleSlider.addEventListener('input', (e) => {
+            const oldValue = currentParams.angle;
+            currentParams.angle = parseFloat(e.target.value);
+            angleValue.textContent = currentParams.angle;
+            
+            physics.log('angle_changed', { old: oldValue, new: currentParams.angle });
+            updateLogDisplay();
+            calculateAndDisplay();
+            render();
+        });
+        
+        velocitySlider.addEventListener('input', (e) => {
+            const oldValue = currentParams.velocity;
+            currentParams.velocity = parseFloat(e.target.value);
+            velocityValue.textContent = currentParams.velocity;
+            
+            physics.log('velocity_changed', { old: oldValue, new: currentParams.velocity });
+            updateLogDisplay();
+            calculateAndDisplay();
+            render();
+        });
+        
+        gravitySlider.addEventListener('input', (e) => {
+            const oldValue = currentParams.gravity;
+            currentParams.gravity = parseFloat(e.target.value);
+            gravityValue.textContent = currentParams.gravity;
+            
+            physics.log('gravity_changed', { old: oldValue, new: currentParams.gravity });
+            updateLogDisplay();
+            calculateAndDisplay();
+            render();
+        });
+        
+        // Launch simulation
+        launchBtn.addEventListener('click', () => {
+            trail = [];
+            projectilePos = { x: 0, y: 0 };
+            
+            physics.log('simulation_started', currentParams);
+            updateLogDisplay();
+            
+            // Disable controls
+            angleSlider.disabled = true;
+            velocitySlider.disabled = true;
+            gravitySlider.disabled = true;
+            launchBtn.disabled = true;
+            pauseBtn.disabled = false;
+            
+            animator.start((elapsed) => {
+                const pos = physics.getProjectilePosition(
+                    calculatedResults.vx,
+                    calculatedResults.vy,
+                    currentParams.gravity,
+                    elapsed
+                );
+                
+                if (pos.y < 0) {
+                    physics.log('simulation_completed', {
+                        range: calculatedResults.range,
+                        maxHeight: calculatedResults.maxHeight,
+                        time: calculatedResults.timeOfFlight
+                    });
+                    updateLogDisplay();
+                    
+                    // Re-enable controls
+                    angleSlider.disabled = false;
+                    velocitySlider.disabled = false;
+                    gravitySlider.disabled = false;
+                    launchBtn.disabled = false;
+                    pauseBtn.disabled = true;
+                    
+                    return false; // Stop animation
+                }
+                
+                projectilePos = pos;
+                trail.push({ ...pos });
+                render();
+                
+                return true; // Continue animation
+            });
+        });
+        
+        // Pause simulation
+        pauseBtn.addEventListener('click', () => {
+            animator.stop();
+            
+            physics.log('simulation_paused', { at_time: animator.startTime });
+            updateLogDisplay();
+            
+            angleSlider.disabled = false;
+            velocitySlider.disabled = false;
+            gravitySlider.disabled = false;
+            launchBtn.disabled = false;
+            pauseBtn.disabled = true;
+        });
+        
+        // Reset simulation
+        resetBtn.addEventListener('click', () => {
+            animator.reset();
+            trail = [];
+            projectilePos = { x: 0, y: 0 };
+            
+            physics.log('simulation_reset', {});
+            updateLogDisplay();
+            
+            angleSlider.disabled = false;
+            velocitySlider.disabled = false;
+            gravitySlider.disabled = false;
+            launchBtn.disabled = false;
+            pauseBtn.disabled = true;
+            
+            render();
+        });
+        
+        // Initialize
+        calculateAndDisplay();
+        render();
+    </script>
+</body>
+</html>
